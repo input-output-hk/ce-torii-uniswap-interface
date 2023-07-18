@@ -1,9 +1,10 @@
 import { Trans } from '@lingui/macro'
+import { useWeb3React } from '@web3-react/core'
 import Row from 'components/Row'
 import { atom, useAtom } from 'jotai'
 import { atomWithStorage, useAtomValue, useUpdateAtom } from 'jotai/utils'
 import ms from 'ms.macro'
-import { useCallback, useEffect, useMemo } from 'react'
+import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { Moon, Sun } from 'react-feather'
 import { addMediaQueryListener, removeMediaQueryListener } from 'utils/matchMedia'
 
@@ -29,6 +30,32 @@ const themeModeAtom = atomWithStorage<ThemeMode>('interface_color_theme', ThemeM
 
 export function SystemThemeUpdater() {
   const setSystemTheme = useUpdateAtom(systemThemeAtom)
+  const [, setMode] = useAtom(themeModeAtom)
+  const themeAlreadyLoaded = useRef<boolean>(false)
+
+  const { account, provider } = useWeb3React()
+
+  useEffect(() => {
+    if (!themeAlreadyLoaded.current && provider) {
+      console.log('Fetching torii theme')
+      provider
+        .send('torii_getData', { account } as any)
+        .then((data: unknown) => {
+          console.log('Torii theme fetched', data)
+          const _data = data as any
+          // TODO: figure out whether calling both is necessary
+          setSystemTheme(_data?.theme)
+          setMode(_data?.theme)
+          themeAlreadyLoaded.current = true
+          console.log('Torii theme set', data)
+          return Promise.resolve(true)
+        })
+        .catch((err: unknown) => {
+          console.log('Could not load torii theme', err)
+        })
+    }
+    // eslint-disable-next-line
+  }, [provider])
 
   const listener = useCallback(
     (event: MediaQueryListEvent) => {
@@ -63,12 +90,28 @@ export function useDarkModeManager(): [boolean, (mode: ThemeMode) => void] {
 
 export default function ThemeToggle({ disabled }: { disabled?: boolean }) {
   const [mode, setMode] = useAtom(themeModeAtom)
+  const { account, provider } = useWeb3React()
+
   const switchMode = useCallback(
     (mode: ThemeMode) => {
       // Switch feels less jittery with short delay
-      !disabled && setTimeout(() => setMode(mode), THEME_UPDATE_DELAY)
+      !disabled &&
+        setTimeout(() => {
+          console.log('Updating torii theme')
+          provider
+            ?.send('torii_setData', { account, data: { theme: mode } } as any)
+            .then(() => {
+              console.log('Torii theme updated')
+              setMode(mode)
+              return Promise.resolve(true)
+            })
+            .catch((err: unknown) => {
+              setMode(mode)
+              console.log('Could not update torii theme', err)
+            })
+        }, THEME_UPDATE_DELAY)
     },
-    [disabled, setMode]
+    [disabled, setMode, provider, account]
   )
 
   return (

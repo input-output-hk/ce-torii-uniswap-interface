@@ -268,6 +268,11 @@
     "workbox-routing": "^6.1.0",
     "zustand": "^4.3.6"
   },
+  "resolutions": {
+    "**/@walletconnect/modal-ui": "file:./adjusted_npm__packages/walletconnect-modal-ui-2.6.0.tgz",
+    "**/@walletconnect/universal-provider": "file:./adjusted_npm__packages/walletconnect-universal-provider-2.9.0.tgz",
+    "**/@walletconnect/ethereum-provider": "file:./adjusted_npm__packages/walletconnect-ethereum-provider-2.9.0.tgz"
+  },
   "engines": {
     "npm": "please-use-yarn",
     "node": "18.x",
