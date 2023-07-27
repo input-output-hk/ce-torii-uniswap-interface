@@ -15,6 +15,7 @@ import { UNIVERSAL_ROUTER_ADDRESS } from '@uniswap/universal-router-sdk'
 import { useWeb3React } from '@web3-react/core'
 import { useToggleAccountDrawer } from 'components/AccountDrawer'
 import { sendEvent } from 'components/analytics'
+import Modal from 'components/Modal'
 import { NetworkAlert } from 'components/NetworkAlert/NetworkAlert'
 import PriceImpactModal from 'components/swap/PriceImpactModal'
 import PriceImpactWarning from 'components/swap/PriceImpactWarning'
@@ -32,6 +33,7 @@ import { useUSDPrice } from 'hooks/useUSDPrice'
 import JSBI from 'jsbi'
 import { formatEventPropertiesForTrade } from 'lib/utils/analytics'
 import { ReactNode, useCallback, useEffect, useMemo, useReducer, useState } from 'react'
+import { useRef } from 'react'
 import { ArrowDown } from 'react-feather'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { Text } from 'rebass'
@@ -41,7 +43,7 @@ import styled, { useTheme } from 'styled-components/macro'
 import { didUserReject } from 'utils/swapErrorToUserReadableMessage'
 
 import AddressInputPanel from '../../components/AddressInputPanel'
-import { ButtonError, ButtonLight, ButtonPrimary } from '../../components/Button'
+import { ButtonError, ButtonLight, ButtonPrimary, LoadingButtonSpinner } from '../../components/Button'
 import { GrayCard } from '../../components/Card'
 import { AutoColumn } from '../../components/Column'
 import SwapCurrencyInputPanel from '../../components/CurrencyInputPanel/SwapCurrencyInputPanel'
@@ -55,6 +57,7 @@ import { getSwapCurrencyId, TOKEN_SHORTHANDS } from '../../constants/tokens'
 import { useCurrency, useDefaultActiveTokens } from '../../hooks/Tokens'
 import { useIsSwapUnsupported } from '../../hooks/useIsSwapUnsupported'
 import useWrapCallback, { WrapErrorText, WrapType } from '../../hooks/useWrapCallback'
+import { PolygonIdProvider } from '../../polygonId'
 import { Field, replaceSwapState } from '../../state/swap/actions'
 import { useDefaultsFromURLSearch, useDerivedSwapInfo, useSwapActionHandlers } from '../../state/swap/hooks'
 import swapReducer, { initialState as initialSwapState, SwapState } from '../../state/swap/reducer'
@@ -176,8 +179,13 @@ export function Swap({
   onCurrencyChange?: (selected: Pick<SwapState, Field.INPUT | Field.OUTPUT>) => void
   disableTokenInputs?: boolean
 }) {
-  const { account, chainId: connectedChainId, connector } = useWeb3React()
+  const { account, chainId: connectedChainId, connector, provider } = useWeb3React()
   const trace = useTrace()
+
+  const authorizationReqId = useRef<null | number>(null)
+  const [authorized, setAuthorized] = useState(false)
+  const [showVCsModal, setShowVCsModal] = useState(false)
+  const [showVC403Modal, setShowVC403Modal] = useState(false)
 
   // token warning stuff
   const prefilledInputCurrency = useCurrency(prefilledState?.[Field.INPUT]?.currencyId)
@@ -541,6 +549,19 @@ export function Swap({
 
   return (
     <SwapWrapper chainId={chainId} className={className} id="swap-page">
+      {showVCsModal && (
+        <VCsModal
+          onClose={() => {
+            setShowVCsModal(false)
+            setAuthorized(false)
+          }}
+          onWrap={onWrap}
+          authorized={authorized}
+        />
+      )}
+      {showVC403Modal && (
+        <VCUnrecognizedOrNotFoundModal isOpen={showVC403Modal} onClose={() => setShowVC403Modal(false)} />
+      )}
       <TokenSafetyModal
         isOpen={importTokensNotInDefault.length > 0 && !dismissTokenWarning}
         tokenAddress={importTokensNotInDefault[0]?.address}
@@ -707,7 +728,57 @@ export function Swap({
           ) : showWrap ? (
             <ButtonPrimary
               disabled={Boolean(wrapInputError)}
-              onClick={onWrap}
+              onClick={async () => {
+                authorizationReqId.current = getRandomVcRequestId()
+                setShowVCsModal(true)
+
+                const date = new Date()
+                date.setFullYear(date.getFullYear() - 21)
+                const dateStringBefore21YearsFromNow = `${date.getFullYear()}${(date.getMonth() + 1)
+                  .toString()
+                  .padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`
+
+                const hardcodedAgeVCProofRequest = {
+                  id: getRandomVcRequestId(),
+                  circuitId: 'credentialAtomicQuerySigV2',
+                  optional: false,
+                  query: {
+                    allowedIssuers: ['*'],
+                    type: 'KYCAgeCredential',
+                    context:
+                      'https://raw.githubusercontent.com/iden3/claim-schema-vocab/main/schemas/json-ld/kyc-v3.json-ld',
+                    credentialSubject: {
+                      birthday: {
+                        $lt: dateStringBefore21YearsFromNow,
+                      },
+                    },
+                  },
+                }
+
+                const polygonId = new PolygonIdProvider()
+                const verifier = await polygonId.getVerifier()
+
+                try {
+                  const proof = await provider?.send('torii_credential', hardcodedAgeVCProofRequest as any)
+
+                  // TODO: find out mechanism to bind 'authorizationReqId' with the same
+                  // id that would come up as part of proof.
+
+                  const isValidProof = await verifier.verify(proof)
+
+                  if (isValidProof) {
+                    setAuthorized(true)
+                  } else {
+                    setAuthorized(false)
+                    setShowVCsModal(false)
+                    setShowVC403Modal(true)
+                  }
+                } catch (err) {
+                  setShowVCsModal(false)
+                  setShowVC403Modal(true)
+                  setAuthorized(false)
+                }
+              }}
               fontWeight={600}
               data-testid="wrap-button"
             >
@@ -758,4 +829,115 @@ export function Swap({
       </AutoColumn>
     </SwapWrapper>
   )
+}
+
+const VCModalWrapper = styled.div`
+  display: flex;
+  flex: 1;
+  align-items: center;
+  flex-direction: column;
+  padding: 24px;
+`
+
+const VCDivider = styled.div`
+  height: 24px;
+`
+
+function VCsModal({
+  onClose,
+  onWrap,
+  authorized,
+}: {
+  onClose: () => void
+  onWrap?: () => Promise<void>
+  authorized: boolean
+}) {
+  const [wrapping, setWrapping] = useState(false)
+
+  const verificationLoadingContent = (
+    <>
+      <ThemedText.HeadlineMedium>Verification required</ThemedText.HeadlineMedium>
+      <VCDivider />
+      <ThemedText.BodyPrimary>Uniswap requires proof that you are older than 21 years.</ThemedText.BodyPrimary>
+      <VCDivider />
+      <ThemedText.BodyPrimary fontWeight="bold">
+        Please do not close this dialog and navigate to Torii to accept the age proof request.
+      </ThemedText.BodyPrimary>
+      <VCDivider />
+      <>
+        <LoadingButtonSpinner />
+        <VCDivider />
+        <ButtonError onClick={onClose}>
+          <Text fontSize={20} fontWeight={600}>
+            Abort transaction
+          </Text>
+        </ButtonError>
+      </>
+    </>
+  )
+
+  const verifiedContent = (
+    <>
+      <ThemedText.HeadlineMedium>Verification successful</ThemedText.HeadlineMedium>
+      <VCDivider />
+      <ButtonError
+        onClick={() => {
+          setWrapping(true)
+          if (onWrap) {
+            onWrap()
+          }
+        }}
+      >
+        <Text fontSize={20} fontWeight={600}>
+          Wrap
+        </Text>
+      </ButtonError>
+    </>
+  )
+
+  const signContent = (
+    <>
+      <ThemedText.HeadlineMedium>Sign transaction</ThemedText.HeadlineMedium>
+      <VCDivider />
+      <ThemedText.BodyPrimary>Sign transaction in your connected wallet</ThemedText.BodyPrimary>
+      <VCDivider />
+      <ButtonError onClick={onClose}>
+        <Text fontSize={20} fontWeight={600}>
+          Close
+        </Text>
+      </ButtonError>
+    </>
+  )
+
+  return (
+    <Modal hideBorder isOpen={true} maxHeight={90} maxWidth={600}>
+      <VCModalWrapper>
+        {authorized ? (wrapping ? signContent : verifiedContent) : verificationLoadingContent}
+      </VCModalWrapper>
+    </Modal>
+  )
+}
+
+function VCUnrecognizedOrNotFoundModal({ onClose }: { isOpen: boolean; onClose: () => void }) {
+  return (
+    <Modal hideBorder isOpen={true} maxHeight={90} maxWidth={600} onDismiss={onClose}>
+      <VCModalWrapper>
+        <ThemedText.HeadlineMedium>Proof of age unrecognized</ThemedText.HeadlineMedium>
+        <VCDivider />
+        <ThemedText.BodyPrimary>Unfortunately, we were not able to recognize the proof of age.</ThemedText.BodyPrimary>
+        <VCDivider />
+        <ButtonError onClick={onClose}>
+          <Text fontSize={20} fontWeight={600}>
+            Abort transaction
+          </Text>
+        </ButtonError>
+      </VCModalWrapper>
+    </Modal>
+  )
+}
+
+function getRandomVcRequestId() {
+  const min = 1
+  const max = 1000 * 1000
+  return Math.floor(Math.random() * (max - min + 1)) + min
 }
