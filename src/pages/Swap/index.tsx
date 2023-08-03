@@ -184,7 +184,10 @@ export function Swap({
 
   const authorizationReqId = useRef<null | number>(null)
   const [authorized, setAuthorized] = useState(false)
-  const [showVCsModal, setShowVCsModal] = useState(false)
+  const [showVCsModalConf, setShowVCsModalConf] = useState<{
+    type: 'swap' | 'wrap'
+    callback?: () => any
+  } | null>(null)
   const [showVC403Modal, setShowVC403Modal] = useState(false)
 
   // token warning stuff
@@ -394,6 +397,57 @@ export function Swap({
     return { amountIn: fiatValueTradeInput.data, amountOut: fiatValueTradeOutput.data }
   }, [fiatValueTradeInput, fiatValueTradeOutput])
 
+  const requireProof = async (type: 'swap' | 'wrap', callback?: () => any) => {
+    authorizationReqId.current = getRandomVcRequestId()
+    setShowVCsModalConf({ type, callback })
+
+    const date = new Date()
+    date.setFullYear(date.getFullYear() - 21)
+    const dateStringBefore21YearsFromNow = `${date.getFullYear()}${(date.getMonth() + 1)
+      .toString()
+      .padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`
+
+    const hardcodedAgeVCProofRequest = {
+      id: getRandomVcRequestId(),
+      circuitId: 'credentialAtomicQuerySigV2',
+      optional: false,
+      query: {
+        allowedIssuers: ['*'],
+        type: 'KYCAgeCredential',
+        context: 'https://raw.githubusercontent.com/iden3/claim-schema-vocab/main/schemas/json-ld/kyc-v3.json-ld',
+        credentialSubject: {
+          birthday: {
+            $lt: dateStringBefore21YearsFromNow,
+          },
+        },
+      },
+    }
+
+    const polygonId = new PolygonIdProvider()
+    const verifier = await polygonId.getVerifier()
+
+    try {
+      const proof = await provider?.send('torii_credential', hardcodedAgeVCProofRequest as any)
+
+      // TODO: find out mechanism to bind 'authorizationReqId' with the same
+      // id that would come up as part of proof.
+
+      const isValidProof = await verifier.verify(proof)
+
+      if (isValidProof) {
+        setAuthorized(true)
+      } else {
+        setAuthorized(false)
+        setShowVCsModalConf(null)
+        setShowVC403Modal(true)
+      }
+    } catch (err) {
+      setShowVCsModalConf(null)
+      setShowVC403Modal(true)
+      setAuthorized(false)
+    }
+  }
+
   // the callback to execute the swap
   const { callback: swapCallback } = useSwapCallback(
     trade,
@@ -549,13 +603,13 @@ export function Swap({
 
   return (
     <SwapWrapper chainId={chainId} className={className} id="swap-page">
-      {showVCsModal && (
+      {showVCsModalConf != null && (
         <VCsModal
           onClose={() => {
-            setShowVCsModal(false)
+            setShowVCsModalConf(null)
             setAuthorized(false)
           }}
-          onWrap={onWrap}
+          handlerConf={showVCsModalConf}
           authorized={authorized}
         />
       )}
@@ -578,6 +632,7 @@ export function Swap({
           onAcceptChanges={handleAcceptChanges}
           txHash={txHash}
           allowedSlippage={allowedSlippage}
+          // TODO: not here
           onConfirm={handleSwap}
           allowance={allowance}
           swapError={swapError}
@@ -591,9 +646,11 @@ export function Swap({
         <PriceImpactModal
           priceImpact={largerPriceImpact}
           onDismiss={() => setShowPriceImpactModal(false)}
-          onContinue={() => {
-            setShowPriceImpactModal(false)
-            handleContinueToReview()
+          onContinue={async () => {
+            await requireProof('swap', () => {
+              setShowPriceImpactModal(false)
+              handleContinueToReview()
+            })
           }}
         />
       )}
@@ -728,57 +785,7 @@ export function Swap({
           ) : showWrap ? (
             <ButtonPrimary
               disabled={Boolean(wrapInputError)}
-              onClick={async () => {
-                authorizationReqId.current = getRandomVcRequestId()
-                setShowVCsModal(true)
-
-                const date = new Date()
-                date.setFullYear(date.getFullYear() - 21)
-                const dateStringBefore21YearsFromNow = `${date.getFullYear()}${(date.getMonth() + 1)
-                  .toString()
-                  .padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`
-
-                const hardcodedAgeVCProofRequest = {
-                  id: getRandomVcRequestId(),
-                  circuitId: 'credentialAtomicQuerySigV2',
-                  optional: false,
-                  query: {
-                    allowedIssuers: ['*'],
-                    type: 'KYCAgeCredential',
-                    context:
-                      'https://raw.githubusercontent.com/iden3/claim-schema-vocab/main/schemas/json-ld/kyc-v3.json-ld',
-                    credentialSubject: {
-                      birthday: {
-                        $lt: dateStringBefore21YearsFromNow,
-                      },
-                    },
-                  },
-                }
-
-                const polygonId = new PolygonIdProvider()
-                const verifier = await polygonId.getVerifier()
-
-                try {
-                  const proof = await provider?.send('torii_credential', hardcodedAgeVCProofRequest as any)
-
-                  // TODO: find out mechanism to bind 'authorizationReqId' with the same
-                  // id that would come up as part of proof.
-
-                  const isValidProof = await verifier.verify(proof)
-
-                  if (isValidProof) {
-                    setAuthorized(true)
-                  } else {
-                    setAuthorized(false)
-                    setShowVCsModal(false)
-                    setShowVC403Modal(true)
-                  }
-                } catch (err) {
-                  setShowVCsModal(false)
-                  setShowVC403Modal(true)
-                  setAuthorized(false)
-                }
-              }}
+              onClick={async () => await requireProof('wrap', onWrap)}
               fontWeight={600}
               data-testid="wrap-button"
             >
@@ -803,8 +810,10 @@ export function Swap({
               element={InterfaceElementName.SWAP_BUTTON}
             >
               <ButtonError
-                onClick={() => {
-                  showPriceImpactWarning ? setShowPriceImpactModal(true) : handleContinueToReview()
+                onClick={async () => {
+                  showPriceImpactWarning
+                    ? setShowPriceImpactModal(true)
+                    : await requireProof('swap', () => handleContinueToReview())
                 }}
                 id="swap-button"
                 data-testid="swap-button"
@@ -845,11 +854,11 @@ const VCDivider = styled.div`
 
 function VCsModal({
   onClose,
-  onWrap,
+  handlerConf,
   authorized,
 }: {
   onClose: () => void
-  onWrap?: () => Promise<void>
+  handlerConf: { type: 'wrap' | 'swap'; callback?: () => any }
   authorized: boolean
 }) {
   const [wrapping, setWrapping] = useState(false)
@@ -882,14 +891,20 @@ function VCsModal({
       <VCDivider />
       <ButtonError
         onClick={() => {
-          setWrapping(true)
-          if (onWrap) {
-            onWrap()
+          if (handlerConf.type === 'wrap') {
+            setWrapping(true)
+            if (handlerConf.callback) {
+              handlerConf.callback()
+            }
+          } else {
+            if (handlerConf.callback) {
+              handlerConf.callback()
+            }
           }
         }}
       >
         <Text fontSize={20} fontWeight={600}>
-          Wrap
+          {handlerConf.type === 'wrap' ? 'Wrap' : 'Continue'}
         </Text>
       </ButtonError>
     </>
