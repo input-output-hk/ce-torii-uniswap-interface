@@ -106,33 +106,22 @@ export default class Storage {
         .then((response) => response.arrayBuffer())
         .then((buffer) => new Uint8Array(buffer))
 
-    await circuitStorage.saveCircuitData(CircuitId.AuthV2, {
-      circuitId: CircuitId.AuthV2,
-      wasm: await loader(`${CircuitId.AuthV2.toString()}/circuit.wasm`),
-      provingKey: await loader(`${CircuitId.AuthV2.toString()}/circuit_final.zkey`),
-      verificationKey: await loader(`${CircuitId.AuthV2.toString()}/verification_key.json`),
-    })
+    const setupCircuit = async (c: CircuitId) => {
+      await circuitStorage.saveCircuitData(c, {
+        circuitId: c,
+        wasm: await loader(`iden3Circuits/${c.toString()}/circuit.wasm`),
+        provingKey: await loader(`iden3Circuits/${c.toString()}/circuit_final.zkey`),
+        verificationKey: await loader(`iden3Circuits/${c.toString()}/verification_key.json`),
+      })
+    }
 
-    await circuitStorage.saveCircuitData(CircuitId.AtomicQuerySigV2, {
-      circuitId: CircuitId.AtomicQuerySigV2,
-      wasm: await loader(`${CircuitId.AtomicQuerySigV2.toString()}/circuit.wasm`),
-      provingKey: await loader(`${CircuitId.AtomicQuerySigV2.toString()}/circuit_final.zkey`),
-      verificationKey: await loader(`${CircuitId.AtomicQuerySigV2.toString()}/verification_key.json`),
-    })
+    await setupCircuit(CircuitId.AuthV2)
+    await setupCircuit(CircuitId.AtomicQuerySigV2)
+    await setupCircuit(CircuitId.AtomicQuerySigV2OnChain)
+    await setupCircuit(CircuitId.StateTransition)
+    await setupCircuit(CircuitId.AtomicQueryMTPV2)
+    await setupCircuit(CircuitId.AtomicQueryMTPV2OnChain)
 
-    await circuitStorage.saveCircuitData(CircuitId.StateTransition, {
-      circuitId: CircuitId.StateTransition,
-      wasm: await loader(`${CircuitId.StateTransition.toString()}/circuit.wasm`),
-      provingKey: await loader(`${CircuitId.StateTransition.toString()}/circuit_final.zkey`),
-      verificationKey: await loader(`${CircuitId.StateTransition.toString()}/verification_key.json`),
-    })
-
-    await circuitStorage.saveCircuitData(CircuitId.AtomicQueryMTPV2, {
-      circuitId: CircuitId.AtomicQueryMTPV2,
-      wasm: await loader(`${CircuitId.AtomicQueryMTPV2.toString()}/circuit.wasm`),
-      provingKey: await loader(`${CircuitId.AtomicQueryMTPV2.toString()}/circuit_final.zkey`),
-      verificationKey: await loader(`${CircuitId.AtomicQueryMTPV2.toString()}/verification_key.json`),
-    })
     return circuitStorage
   }
 }
