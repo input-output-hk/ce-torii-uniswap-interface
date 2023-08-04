@@ -899,6 +899,7 @@ function VCsModal({
           } else {
             if (handlerConf.callback) {
               handlerConf.callback()
+              onClose()
             }
           }
         }}
