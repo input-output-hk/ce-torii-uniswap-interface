@@ -1,11 +1,19 @@
+import type { Web3Provider } from '@ethersproject/providers'
+
 import { defaultEthConnectionConfig } from './config'
 import Storage from './storage'
-import Verifier from './verifier'
+import { OffChainVerifier, OnChainVerifier } from './verifier'
 
 export class PolygonIdProvider {
-  async getVerifier() {
+  async getOffChainVerifier() {
     const storage = new Storage(defaultEthConnectionConfig)
     await storage.init()
-    return new Verifier(storage.instance())
+    return new OffChainVerifier(storage.instance())
+  }
+
+  async getOnChainVerifier(provider: Web3Provider) {
+    const storage = new Storage(defaultEthConnectionConfig)
+    await storage.init()
+    return new OnChainVerifier(storage.instance(), provider)
   }
 }

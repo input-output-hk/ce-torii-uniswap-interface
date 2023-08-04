@@ -32,6 +32,7 @@ import { useSwitchChain } from 'hooks/useSwitchChain'
 import { useUSDPrice } from 'hooks/useUSDPrice'
 import JSBI from 'jsbi'
 import { formatEventPropertiesForTrade } from 'lib/utils/analytics'
+import { getProofOfAgeRequest } from 'polygonId/utils'
 import { ReactNode, useCallback, useEffect, useMemo, useReducer, useState } from 'react'
 import { useRef } from 'react'
 import { ArrowDown } from 'react-feather'
@@ -407,30 +408,28 @@ export function Swap({
       .toString()
       .padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}`
 
-    const hardcodedAgeVCProofRequest = {
-      id: getRandomVcRequestId(),
-      circuitId: 'credentialAtomicQuerySigV2OnChain',
-      optional: false,
-      query: {
-        allowedIssuers: ['*'],
-        type: 'KYCAgeCredential',
-        context: 'https://raw.githubusercontent.com/iden3/claim-schema-vocab/main/schemas/json-ld/kyc-v3.json-ld',
-        credentialSubject: {
-          birthday: {
-            $lt: dateStringBefore21YearsFromNow,
-          },
-        },
-      },
-    }
+    const hardcodedAgeVCProofRequest = getProofOfAgeRequest({
+      maxBirthDate: dateStringBefore21YearsFromNow,
+    })
 
     const polygonId = new PolygonIdProvider()
-    const verifier = await polygonId.getVerifier()
 
     try {
       const proof = await provider?.send('torii_credential', hardcodedAgeVCProofRequest as any)
-      const isValidProof = await verifier.verify(proof, hardcodedAgeVCProofRequest)
+      const verifyOffChain = async () => {
+        const offChainVerifier = await polygonId.getOffChainVerifier()
+        return await offChainVerifier.verify(proof, hardcodedAgeVCProofRequest)
+      }
 
-      if (isValidProof) {
+      const verifyOnChain = async () => {
+        if (!provider) {
+          return false
+        }
+        const onChainVerifier = await polygonId.getOnChainVerifier(provider)
+        return await onChainVerifier.verify(proof, hardcodedAgeVCProofRequest)
+      }
+
+      if (proof && (await verifyOffChain()) && (await verifyOnChain())) {
         setAuthorized(true)
       } else {
         setAuthorized(false)
