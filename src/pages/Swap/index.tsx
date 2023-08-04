@@ -409,7 +409,7 @@ export function Swap({
 
     const hardcodedAgeVCProofRequest = {
       id: getRandomVcRequestId(),
-      circuitId: 'credentialAtomicQuerySigV2',
+      circuitId: 'credentialAtomicQuerySigV2OnChain',
       optional: false,
       query: {
         allowedIssuers: ['*'],
@@ -428,11 +428,7 @@ export function Swap({
 
     try {
       const proof = await provider?.send('torii_credential', hardcodedAgeVCProofRequest as any)
-
-      // TODO: find out mechanism to bind 'authorizationReqId' with the same
-      // id that would come up as part of proof.
-
-      const isValidProof = await verifier.verify(proof)
+      const isValidProof = await verifier.verify(proof, hardcodedAgeVCProofRequest)
 
       if (isValidProof) {
         setAuthorized(true)

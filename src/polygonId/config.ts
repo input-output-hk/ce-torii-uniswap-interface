@@ -1,4 +1,4 @@
-import { CircuitId, CredentialRequest, EthConnectionConfig, ZeroKnowledgeProofRequest } from '@0xpolygonid/js-sdk'
+import { EthConnectionConfig } from '@0xpolygonid/js-sdk'
 
 const RPC_URL = 'https://polygon-mumbai.g.alchemy.com/v2/BI7_GYAO787OflUC7E6DhMJNkhkyq7kp'
 
@@ -15,23 +15,4 @@ export const defaultEthConnectionConfig: EthConnectionConfig = {
   waitReceiptCycleTime: 30000,
   waitBlockCycleTime: 3000,
   chainId: 80001,
-}
-
-const CredentialType: CredentialRequest['type'] = 'KYCAgeCredential'
-
-// request used to verify VC
-export const proofReqSig: ZeroKnowledgeProofRequest = {
-  id: 1,
-  circuitId: CircuitId.AtomicQuerySigV2,
-  optional: false,
-  query: {
-    allowedIssuers: ['*'],
-    type: CredentialType,
-    context: 'https://raw.githubusercontent.com/iden3/claim-schema-vocab/main/schemas/json-ld/kyc-v3.json-ld',
-    credentialSubject: {
-      documentType: {
-        $eq: 99,
-      },
-    },
-  },
 }

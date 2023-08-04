@@ -4,22 +4,19 @@ import { StorageServices } from './storage'
 
 export default class Verifier {
   private storage: StorageServices
-  private zkpRequest: ZeroKnowledgeProofRequest
-  constructor(storage: StorageServices, zkpRequest: ZeroKnowledgeProofRequest) {
+  constructor(storage: StorageServices) {
     this.storage = storage
-    this.zkpRequest = zkpRequest
   }
 
-  async verify(zkp: ZeroKnowledgeProofResponse): Promise<boolean> {
+  async verify(zkp: ZeroKnowledgeProofResponse, zkpRequest: ZeroKnowledgeProofRequest): Promise<boolean> {
     try {
-      const sigProofOk = await this.storage.proofService.verifyProof(zkp, this.zkpRequest.circuitId as CircuitId)
+      // TODO check that proof matches query, see https://github.com/0xPolygonID/js-sdk/issues/118
+      // A dirty workaround until we find a native way to do this in the SDK
+      // could be producing a proof with dummy credentials here and extracting the query hash from its raw data
+      const sigProofOk = await this.storage.proofService.verifyProof(zkp, zkpRequest.circuitId as CircuitId)
       return sigProofOk
     } catch {
       return false
     }
-  }
-
-  getProofReq(): ZeroKnowledgeProofRequest {
-    return this.zkpRequest
   }
 }
