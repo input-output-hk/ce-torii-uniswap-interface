@@ -1,0 +1,34 @@
+name: Build and deploy 
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    environment: github-pages
+    env:
+      NODE_OPTIONS: --max-old-space-size=10248
+      PUBLIC_URL: '.'
+    runs-on: macos-latest-xl
+
+    steps:
+      - name: Checkout 🛎️
+        uses: actions/checkout@v3
+      
+      - name: Setup Node.js for use with actions
+        uses: actions/setup-node@v3
+        with:
+          node-version: 18.16
+
+      - name: Install 🔧
+        run: yarn install
+
+      - name: Build 🏗️
+        run: CI='' yarn build
+
+      - name: Deploy to GH Pages 🚀
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./build
