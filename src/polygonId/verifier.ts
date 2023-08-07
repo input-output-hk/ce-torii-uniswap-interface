@@ -1,7 +1,7 @@
 import { CircuitId, Operators, ZeroKnowledgeProofRequest, ZeroKnowledgeProofResponse } from '@0xpolygonid/js-sdk'
 import { Web3Provider } from '@ethersproject/providers'
 // eslint-disable-next-line @typescript-eslint/no-restricted-imports
-import { ethers, Wallet } from 'ethers'
+import { BigNumber, ethers, Wallet } from 'ethers'
 
 import ERC20VerifierContractDef from './contracts/ERC20Verifier.json'
 import { StorageServices } from './storage'
@@ -78,11 +78,12 @@ export class OnChainVerifier {
         return false
       }
 
+      const queryValue = [parseInt(maxBirthDate, 10), ...new Array(63).fill(0).map(() => 0)]
       const query = {
         schema: schemaBigInt,
         claimPathKey: schemaClaimPathKey,
         operator: Operators.LT, // operator
-        value: [parseInt(maxBirthDate, 10), ...new Array(63).fill(0).map(() => 0)], // for operators 1-3 only first value matters
+        value: queryValue, // for operators 1-3 only first value matters
       }
 
       // in a real DApp, the verifier is of course supposed to run outside the client
@@ -96,21 +97,37 @@ export class OnChainVerifier {
         '0xb1ec2e32cc36652454274d2df3a363304efaf736a9f612bbc8cd6b9530b2aeff',
         this.provider
       )
-      console.log(verifierWallet.address)
       const verifierContractAsVerifier = new ethers.Contract(
         validatorAddress,
         ERC20VerifierContractDef.abi,
         verifierWallet
       )
-      const setZkpRequestTx = await verifierContractAsVerifier.setZKPRequest(
-        zkpRequest.id,
-        signatureValidatorAddress,
-        query.schema,
-        query.claimPathKey,
-        query.operator,
-        query.value
-      )
-      await setZkpRequestTx.wait()
+      // UX optimization/verifier account fee saving (to prevent uncontrolled depleting of the verifier account)
+      // we just need to set the query if it hasn't been set already, so in theory
+      // for the birthday it should be needed just once a day
+      const { value: foundZkpRequestValue } = ((await verifierContractAsVerifier.getZKPRequest(zkpRequest.id)) || {
+        value: [],
+      }) as {
+        value: Array<BigNumber>
+      }
+
+      // see above how queryValue is assembled to understand how this comparison works
+      if (foundZkpRequestValue[0] == null || !foundZkpRequestValue[0].eq(queryValue[0])) {
+        console.log('Submitting ZKP request...')
+        const setZkpRequestTx = await verifierContractAsVerifier.setZKPRequest(
+          zkpRequest.id,
+          signatureValidatorAddress,
+          query.schema,
+          query.claimPathKey,
+          query.operator,
+          query.value
+        )
+        await setZkpRequestTx.wait()
+        console.log('ZKP request successfully submitted!')
+      } else {
+        console.log('ZKP request already set, skipping query submission')
+      }
+
       // end of "verifier only" code
 
       const verifierContractAsUser = new ethers.Contract(
@@ -119,9 +136,11 @@ export class OnChainVerifier {
         this.provider.getSigner()
       )
       const { inputs, pi_a, pi_b, pi_c } = prepareInputs(zkp)
+      console.log('Submiting proof...')
       const verificationTx = await verifierContractAsUser.submitZKPResponse(zkpRequest.id, inputs, pi_a, pi_b, pi_c)
-
       await verificationTx.wait()
+      console.log('Proof successfully submitted!')
+
       // TODO check that proof matches query, see https://github.com/0xPolygonID/js-sdk/issues/118
       // A dirty workaround until we find a native way to do this in the SDK
       // could be producing a proof with dummy credentials here and extracting the query hash from its raw data
