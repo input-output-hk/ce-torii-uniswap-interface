@@ -115,12 +115,12 @@ export default class Storage {
       })
     }
 
-    await setupCircuit(CircuitId.AuthV2)
-    await setupCircuit(CircuitId.AtomicQuerySigV2)
+    // await setupCircuit(CircuitId.AuthV2)
+    // await setupCircuit(CircuitId.AtomicQuerySigV2)
     await setupCircuit(CircuitId.AtomicQuerySigV2OnChain)
-    await setupCircuit(CircuitId.StateTransition)
-    await setupCircuit(CircuitId.AtomicQueryMTPV2)
-    await setupCircuit(CircuitId.AtomicQueryMTPV2OnChain)
+    // await setupCircuit(CircuitId.StateTransition)
+    // await setupCircuit(CircuitId.AtomicQueryMTPV2)
+    // await setupCircuit(CircuitId.AtomicQueryMTPV2OnChain)
 
     return circuitStorage
   }
