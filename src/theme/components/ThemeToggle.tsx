@@ -44,8 +44,10 @@ export function SystemThemeUpdater() {
           console.log('Torii theme fetched', data)
           const _data = data as any
           // TODO: figure out whether calling both is necessary
-          setSystemTheme(_data?.theme)
-          setMode(_data?.theme)
+          if (_data != null) {
+            setSystemTheme(_data?.theme)
+            setMode(_data?.theme)
+          }
           themeAlreadyLoaded.current = true
           console.log('Torii theme set', data)
           return Promise.resolve(true)
